@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Parts Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: { paper: '#EDF0F3', ink: '#17222D', muted: '#5E6B78', line: '#D8DEE5', accent: '#2B4ACB', warn: '#B45309' },
+      fontFamily: { sans: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'] }
+    } }
+  }
+</script>
+<style>
+  body { font-variant-numeric: tabular-nums; }
+  :focus-visible { outline: 2px solid #2B4ACB; outline-offset: 2px; }
+  input[type=range] { accent-color: #2B4ACB; }
+  .skeleton { background: linear-gradient(90deg, #E3E8ED 25%, #EEF1F4 50%, #E3E8ED 75%); background-size: 200% 100%; animation: sk 1.2s linear infinite; }
+  @keyframes sk { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton, .animate-spin { animation: none; } }
+</style>
+</head>
+<body class="bg-paper text-ink font-sans antialiased min-h-screen">
+
+<header class="max-w-7xl mx-auto px-4 pt-6 pb-4 flex flex-wrap items-end gap-4 justify-between">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">PC Parts Tracker</h1>
+    <p class="text-sm text-muted mt-1">eBay and Kleinanzeigen listings, ranked by benchmark points per euro.</p>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <label class="sr-only" for="mode">Listing type</label>
+    <select id="mode" class="h-10 rounded-lg border border-line bg-white px-3 text-sm">
+      <option value="active">Active listings</option>
+      <option value="sold">Sold on eBay (price check)</option>
+    </select>
+    <button id="editBtn" class="h-10 rounded-lg border border-line bg-white px-4 text-sm font-medium hover:bg-slate-50">Edit targets</button>
+    <button id="refreshBtn" class="h-10 rounded-lg bg-accent px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2">
+      <svg id="refreshSpin" class="hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".3" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <span id="refreshLabel">Refresh</span>
+    </button>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 pb-16">
+
+  <section aria-label="Targets" class="mb-4">
+    <div id="chips" class="flex flex-wrap gap-2"></div>
+    <div id="editor" hidden class="mt-3 rounded-xl border border-line bg-white p-4">
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <label class="h-9 inline-flex items-center rounded-lg border border-line px-3 text-sm font-medium cursor-pointer hover:bg-slate-50">
+          Upload JSON file
+          <input id="fileInput" type="file" accept="application/json,.json" class="sr-only">
+        </label>
+        <span class="text-sm text-muted">or paste an array of <code>{"name", "max_budget"}</code> objects:</span>
+      </div>
+      <textarea id="jsonText" rows="7" spellcheck="false" class="w-full rounded-lg border border-line bg-paper/60 p-3 font-mono text-sm" aria-label="Targets JSON"></textarea>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <button id="saveBtn" class="h-9 rounded-lg bg-ink px-4 text-sm font-medium text-white hover:bg-black">Save and refresh</button>
+        <button id="cancelBtn" class="h-9 rounded-lg px-3 text-sm text-muted hover:text-ink">Cancel</button>
+        <p id="editorError" class="text-sm text-warn" role="alert"></p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Filters" class="sticky top-0 z-10 -mx-4 px-4 py-3 bg-paper/95 backdrop-blur border-b border-line">
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
+      <div id="platformSeg" class="inline-flex rounded-lg border border-line bg-white p-0.5 text-sm" role="group" aria-label="Platform">
+        <button data-p="all" class="seg px-3 h-8 rounded-md font-medium">All</button>
+        <button data-p="ebay" class="seg px-3 h-8 rounded-md font-medium">eBay</button>
+        <button data-p="kleinanzeigen" class="seg px-3 h-8 rounded-md font-medium">Kleinanzeigen</button>
+      </div>
+      <input id="q" type="search" placeholder="Search titles, components, places" aria-label="Search keyword"
+             class="h-10 w-full sm:w-64 rounded-lg border border-line bg-white px-3 text-sm">
+      <div class="flex items-center gap-3 min-w-[14rem]">
+        <label for="price" class="text-sm text-muted whitespace-nowrap">Max price</label>
+        <input id="price" type="range" min="0" max="100" step="5" value="100" class="w-40" disabled>
+        <output id="priceOut" class="text-sm font-medium w-16">–</output>
+      </div>
+      <div class="flex items-center gap-2">
+        <label for="sort" class="text-sm text-muted">Sort</label>
+        <select id="sort" class="h-10 rounded-lg border border-line bg-white px-3 text-sm">
+          <option value="value">Best value</option>
+          <option value="price_asc">Lowest price</option>
+          <option value="price_desc">Highest price</option>
+          <option value="newest">Newest / relevance</option>
+        </select>
+      </div>
+      <label class="inline-flex items-center gap-2 text-sm"><input id="group" type="checkbox" class="h-4 w-4"> Group by component</label>
+      <label class="inline-flex items-center gap-2 text-sm"><input id="hideAuctions" type="checkbox" class="h-4 w-4" checked> Hide auctions</label>
+      <label class="inline-flex items-center gap-2 text-sm"><input id="defective" type="checkbox" class="h-4 w-4"> Include defective</label>
+      <div class="ml-auto inline-flex rounded-lg border border-line bg-white p-0.5 text-sm" role="group" aria-label="View">
+        <button data-v="table" class="vseg px-3 h-8 rounded-md font-medium">Table</button>
+        <button data-v="cards" class="vseg px-3 h-8 rounded-md font-medium">Cards</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="progress" hidden class="mt-4 rounded-lg border border-line bg-white px-4 py-3" role="status" aria-live="polite">
+    <div class="flex items-center gap-3 text-sm">
+      <svg class="h-4 w-4 animate-spin text-accent" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <span id="progressText"></span>
+    </div>
+    <div class="mt-2 h-1 rounded-full bg-line"><div id="progressBar" class="h-1 rounded-full bg-accent transition-all" style="width:0%"></div></div>
+  </div>
+
+  <div id="errors" class="mt-4 space-y-2"></div>
+  <p id="summary" class="mt-4 text-sm text-muted" aria-live="polite"></p>
+  <div id="results" class="mt-3"></div>
+</main>
+
+<script>
+const PLATFORMS = {
+  ebay: { name: 'eBay', dot: '#E53238' },
+  kleinanzeigen: { name: 'Kleinanzeigen', dot: '#6FA81B' },
+};
+const eur = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const state = {
+  targets: [],
+  results: new Map(),          // "target|platform" -> listings
+  hidden: new Map(),           // target -> hidden over budget
+  errors: [],
+  loading: false,
+  progress: { done: 0, total: 0, label: '' },
+  resultsMode: 'active',
+  lastRun: null,
+  sliderMax: 0,
+  filters: { platform: 'all', q: '', maxPrice: null, sort: 'value', group: false, hideAuctions: true,
+             view: window.matchMedia('(min-width: 768px)').matches ? 'table' : 'cards' },
+  options: { mode: 'active', includeDefective: false },
+};
+
+async function api(path, { method = 'GET', body } = {}) {
+  const res = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+  let data = null;
+  try { data = await res.json(); } catch { /* non-JSON error page */ }
+  if (!res.ok) throw new Error((data && data.error) || `Server error (${res.status})`);
+  return data;
+}
+
+/* ---------- targets ---------- */
+function renderChips() {
+  const el = $('#chips');
+  if (!state.targets.length) { el.innerHTML = ''; return; }
+  el.innerHTML = state.targets.map((t) => `
+    <span class="inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1 text-sm" ${t.benchmark ? '' : 'title="No benchmark stored for this model, so no value score"'}>
+      <span class="font-medium">${esc(t.name)}</span>
+      <span class="text-muted">up to ${eur.format(t.max_budget)}</span>
+      ${t.benchmark ? '' : '<span class="text-warn text-xs">no benchmark</span>'}
+    </span>`).join('');
+}
+
+function openEditor(open) {
+  $('#editor').hidden = !open;
+  if (open) {
+    $('#jsonText').value = JSON.stringify(state.targets.map(({ name, max_budget }) => ({ name, max_budget })), null, 2);
+    $('#editorError').textContent = '';
+  }
+}
+
+async function saveTargets(raw) {
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { throw new Error('Not valid JSON: ' + e.message); }
+  const data = await api('/api/targets', { method: 'PUT', body: parsed });
+  state.targets = data.targets;
+  state.results.clear(); state.hidden.clear(); state.errors = [];
+  renderChips(); renderAll();
+  openEditor(false);
+  refresh({ force: false });
+}
+
+/* ---------- scraping ---------- */
+async function runJob(job, force) {
+  try {
+    const res = await api('/api/search', { method: 'POST', body: {
+      name: job.target.name, max_budget: job.target.max_budget, platforms: job.platforms,
+      mode: state.options.mode, include_defective: state.options.includeDefective, force } });
+    const failed = new Set(res.errors.map((e) => e.platform));
+    for (const p of job.platforms) {
+      if (!failed.has(p)) state.results.set(`${job.target.name}|${p}`, res.listings.filter((l) => l.platform === p));
+    }
+    for (const e of res.errors) state.errors.push({ target: job.target.name, budget: job.target.max_budget, platform: e.platform, message: e.message });
+    state.hidden.set(job.target.name, res.hidden_over_budget);
+  } catch (err) {
+    for (const p of job.platforms) state.errors.push({ target: job.target.name, budget: job.target.max_budget, platform: p, message: err.message });
+  }
+  renderAll();
+}
+
+async function refresh({ force = true, jobs = null } = {}) {
+  if (state.loading || !state.targets.length) return;
+  state.loading = true;
+  const platforms = state.options.mode === 'sold' ? ['ebay'] : ['ebay', 'kleinanzeigen'];
+  const queue = jobs || state.targets.map((t) => ({ target: t, platforms }));
+  if (!jobs) {
+    state.errors = [];
+    if (state.resultsMode !== state.options.mode) state.results.clear();
+  } else {
+    state.errors = state.errors.filter((e) => !jobs.some((j) => j.target.name === e.target && j.platforms.includes(e.platform)));
+  }
+  state.resultsMode = state.options.mode;
+  state.progress = { done: 0, total: queue.length, label: '' };
+  setLoading(true);
+
+  let next = 0;
+  const worker = async () => {
+    while (next < queue.length) {
+      const job = queue[next++];
+      state.progress.label = job.target.name;
+      renderProgress();
+      await runJob(job, force);
+      state.progress.done++;
+      renderProgress();
+    }
+  };
+  await Promise.all([worker(), worker()]);
+
+  state.loading = false;
+  state.lastRun = new Date();
+  setLoading(false);
+  renderAll();
+}
+
+function retryFailed() {
+  const byTarget = new Map();
+  for (const e of state.errors) {
+    if (!byTarget.has(e.target)) byTarget.set(e.target, { target: { name: e.target, max_budget: e.budget }, platforms: [] });
+    byTarget.get(e.target).platforms.push(e.platform);
+  }
+  refresh({ force: true, jobs: [...byTarget.values()] });
+}
+
+/* ---------- rendering ---------- */
+function setLoading(on) {
+  $('#refreshBtn').disabled = on;
+  $('#refreshSpin').classList.toggle('hidden', !on);
+  $('#refreshLabel').textContent = on ? 'Scraping…' : 'Refresh';
+  $('#progress').hidden = !on;
+  if (on) renderProgress();
+}
+
+function renderProgress() {
+  const { done, total, label } = state.progress;
+  $('#progressText').textContent = `Scraping ${Math.min(done + 1, total)} of ${total}${label ? ': ' + label : ''}. This takes a few seconds per component.`;
+  $('#progressBar').style.width = (total ? (done / total) * 100 : 0) + '%';
+}
+
+function renderErrors() {
+  const el = $('#errors');
+  if (!state.errors.length) { el.innerHTML = ''; return; }
+  const items = state.errors.map((e) => `<li><span class="font-medium">${esc(e.target)}</span> on ${esc(PLATFORMS[e.platform].name)}: ${esc(e.message)}</li>`).join('');
+  el.innerHTML = `
+    <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="alert">
+      <div class="flex items-start justify-between gap-4">
+        <div><p class="font-medium">Some searches failed. Results from the other searches are still shown.</p>
+        <ul class="mt-1 list-disc pl-5">${items}</ul></div>
+        <button id="retryBtn" class="shrink-0 h-8 rounded-md border border-amber-400 bg-white px-3 font-medium hover:bg-amber-100">Retry failed</button>
+      </div>
+    </div>`;
+  $('#retryBtn').onclick = retryFailed;
+}
+
+function allListings() { return [...state.results.values()].flat(); }
+
+function sortItems(items) {
+  const s = state.filters.sort;
+  const byPrice = (a, b) => a.total - b.total;
+  const nullsLast = (x, y, cmp) => (x == null ? (y == null ? 0 : 1) : y == null ? -1 : cmp(x, y));
+  const copy = [...items];
+  if (s === 'price_asc') copy.sort(byPrice);
+  else if (s === 'price_desc') copy.sort((a, b) => b.total - a.total);
+  else if (s === 'newest') copy.sort((a, b) => nullsLast(a.posted_ts, b.posted_ts, (x, y) => y - x) || a.rank - b.rank);
+  else copy.sort((a, b) => nullsLast(a.value, b.value, (x, y) => y - x) || byPrice(a, b));
+  return copy;
+}
+
+function getFiltered() {
+  const f = state.filters;
+  const q = f.q.trim().toLowerCase();
+  const items = allListings().filter((l) =>
+    (f.platform === 'all' || l.platform === f.platform) &&
+    (f.maxPrice == null || l.total <= f.maxPrice) &&
+    (!f.hideAuctions || !l.auction) &&
+    (!q || `${l.title} ${l.target} ${l.location}`.toLowerCase().includes(q)));
+  return sortItems(items);
+}
+
+function updateSlider() {
+  const all = allListings();
+  const max = all.length ? Math.ceil(Math.max(...all.map((l) => l.total)) / 5) * 5 : 0;
+  const slider = $('#price');
+  if (max !== state.sliderMax) {
+    state.sliderMax = max;
+    slider.max = max || 100;
+    slider.value = max || 100;
+    state.filters.maxPrice = null;
+  }
+  slider.disabled = !max;
+  $('#priceOut').textContent = max ? (state.filters.maxPrice == null ? 'Any' : eur.format(state.filters.maxPrice)) : '–';
+}
+
+function agoLabel(l) {
+  if (l.posted_label && l.posted_label.toLowerCase().startsWith('verkauft')) return l.posted_label;
+  if (!l.posted_ts) return l.posted_label || '–';
+  const s = Date.now() / 1000 - l.posted_ts;
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  const d = Math.round(s / 86400);
+  return d === 1 ? 'Yesterday' : d + ' d ago';
+}
+
+function valueCell(l, maxVal, best) {
+  if (l.value == null) return `<span class="text-muted" title="No benchmark stored for this model">–</span>`;
+  const pct = Math.max(4, Math.round((l.value / maxVal) * 100));
+  return `
+    <div class="flex items-baseline gap-1.5" title="${esc(l.bench_name)}: ${l.bench_score} pts at ${eur.format(l.total)}">
+      <span class="text-xl font-semibold leading-none">${l.value.toFixed(1)}</span>
+      <span class="text-xs text-muted">pts/€</span>
+      ${best ? '<span class="ml-auto text-xs font-semibold text-accent">Best value</span>' : ''}
+    </div>
+    <div class="mt-2 h-1.5 rounded-full bg-line"><div class="h-1.5 rounded-full bg-accent" style="width:${pct}%"></div></div>`;
+}
+
+function badges(l) {
+  const b = [];
+  if (l.auction) b.push('Auction');
+  if (l.negotiable) b.push('Negotiable');
+  return b.map((x) => `<span class="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-muted">${x}</span>`).join(' ');
+}
+
+function platformTag(l) {
+  const p = PLATFORMS[l.platform];
+  return `<span class="inline-flex items-center gap-1.5 text-sm"><span class="h-2 w-2 rounded-full" style="background:${p.dot}"></span>${p.name}</span>`;
+}
+
+function priceBlock(l) {
+  const extra = l.shipping_cost ? `${eur.format(l.price)} + ${eur.format(l.shipping_cost)} shipping` : (l.shipping_label !== 'Unknown' ? l.shipping_label : '');
+  return `<div class="font-semibold">${eur.format(l.total)}</div>${extra ? `<div class="text-xs text-muted">${esc(extra)}</div>` : ''}`;
+}
+
+function safeHref(url) { return /^https:\/\//.test(url) ? url : '#'; }
+
+function rowHtml(l, ctx) {
+  const best = ctx.best.get(l.target) === l.id;
+  return `
+    <tr class="border-t border-line align-top hover:bg-slate-50">
+      <td class="py-3 pl-4 pr-4 w-44">${valueCell(l, ctx.max.get(l.target) || 1, best)}</td>
+      <td class="py-3 pr-4">
+        <a href="${esc(safeHref(l.link))}" target="_blank" rel="noopener noreferrer" class="font-medium hover:text-accent hover:underline">${esc(l.title)}</a>
+        <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted"><span>${esc(l.target)}</span>${badges(l)}</div>
+      </td>
+      <td class="py-3 pr-4 whitespace-nowrap">${platformTag(l)}</td>
+      <td class="py-3 pr-4 text-sm text-muted">${esc(l.location || '–')}<div class="text-xs">${esc(l.shipping_label !== 'Unknown' ? l.shipping_label : '')}</div></td>
+      <td class="py-3 pr-4 text-right whitespace-nowrap">${priceBlock(l)}</td>
+      <td class="py-3 pr-4 text-right text-sm text-muted whitespace-nowrap">${esc(agoLabel(l))}</td>
+    </tr>`;
+}
+
+function cardHtml(l, ctx) {
+  const best = ctx.best.get(l.target) === l.id;
+  return `
+    <article class="rounded-xl border border-line bg-white p-4 flex flex-col gap-3">
+      <div>${valueCell(l, ctx.max.get(l.target) || 1, best)}</div>
+      <a href="${esc(safeHref(l.link))}" target="_blank" rel="noopener noreferrer" class="font-medium leading-snug hover:text-accent hover:underline">${esc(l.title)}</a>
+      <div class="flex flex-wrap items-center gap-2 text-xs text-muted"><span>${esc(l.target)}</span>${badges(l)}</div>
+      <div class="mt-auto flex items-end justify-between gap-3">
+        <div class="text-sm text-muted">${platformTag(l)}<div class="text-xs mt-0.5">${esc(l.location || '')}</div><div class="text-xs">${esc(agoLabel(l))}</div></div>
+        <div class="text-right">${priceBlock(l)}</div>
+      </div>
+    </article>`;
+}
+
+const TABLE_HEAD = `
+  <thead class="text-left text-xs text-muted">
+    <tr><th class="py-2.5 pl-4 pr-4 font-medium">Value</th><th class="py-2.5 pr-4 font-medium">Listing</th><th class="py-2.5 pr-4 font-medium">Platform</th>
+        <th class="py-2.5 pr-4 font-medium">Location / shipping</th><th class="py-2.5 pr-4 font-medium text-right">Price</th><th class="py-2.5 pr-4 font-medium text-right">Posted</th></tr>
+  </thead>`;
+
+function renderResults() {
+  const el = $('#results');
+  const items = getFiltered();
+
+  if (!state.targets.length) {
+    el.innerHTML = `<div class="rounded-xl border border-dashed border-line bg-white p-10 text-center">
+      <p class="font-medium">No components yet</p>
+      <p class="mt-1 text-sm text-muted">Upload a JSON file or paste an array of components with a max budget to start tracking.</p>
+      <button id="emptyEdit" class="mt-4 h-9 rounded-lg bg-ink px-4 text-sm font-medium text-white">Add targets</button></div>`;
+    $('#emptyEdit').onclick = () => openEditor(true);
+    return;
+  }
+  if (!items.length) {
+    if (state.loading) {
+      el.innerHTML = `<div class="space-y-2">${'<div class="skeleton h-16 rounded-lg"></div>'.repeat(5)}</div>`;
+    } else {
+      const any = allListings().length > 0;
+      el.innerHTML = `<div class="rounded-xl border border-dashed border-line bg-white p-10 text-center">
+        <p class="font-medium">${any ? 'No listings match these filters' : 'No listings found within budget'}</p>
+        <p class="mt-1 text-sm text-muted">${any ? 'Raise the price cap, show auctions, or clear the search.' : 'Try Refresh, raise a max budget, or check that the model name is spelled the way sellers write it.'}</p></div>`;
+    }
+    return;
+  }
+
+  const ctx = { best: new Map(), max: new Map() };
+  for (const l of items) {
+    if (l.value == null) continue;
+    if (!ctx.max.has(l.target) || l.value > ctx.max.get(l.target)) { ctx.max.set(l.target, l.value); ctx.best.set(l.target, l.id); }
+  }
+
+  const groups = state.filters.group
+    ? state.targets.map((t) => ({ t, rows: items.filter((l) => l.target === t.name) })).filter((g) => g.rows.length)
+    : [{ t: null, rows: items }];
+
+  const isTable = state.filters.view === 'table';
+  el.innerHTML = groups.map((g) => {
+    const head = g.t ? `<h2 class="mt-6 mb-2 flex items-baseline gap-3"><span class="text-lg font-semibold">${esc(g.t.name)}</span><span class="text-sm text-muted">budget ${eur.format(g.t.max_budget)} · ${g.rows.length} listing${g.rows.length === 1 ? '' : 's'}</span></h2>` : '';
+    const body = isTable
+      ? `<div class="overflow-x-auto rounded-xl border border-line bg-white"><table class="w-full min-w-[56rem]">${TABLE_HEAD}<tbody>${g.rows.map((l) => rowHtml(l, ctx)).join('')}</tbody></table></div>`
+      : `<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">${g.rows.map((l) => cardHtml(l, ctx)).join('')}</div>`;
+    return head + body;
+  }).join('');
+}
+
+function renderSummary() {
+  const total = allListings().length;
+  const shown = getFiltered().length;
+  const hidden = [...state.hidden.values()].reduce((a, b) => a + b, 0);
+  const parts = [];
+  if (total) parts.push(`${shown} of ${total} listings shown`);
+  if (hidden) parts.push(`${hidden} hidden for exceeding budget`);
+  if (state.lastRun) parts.push(`updated ${state.lastRun.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`);
+  if (state.resultsMode === 'sold' && total) parts.push('sold prices, use them as a market reference');
+  $('#summary').textContent = parts.join(' · ');
+}
+
+function renderControls() {
+  document.querySelectorAll('.seg').forEach((b) => {
+    const on = b.dataset.p === state.filters.platform;
+    b.classList.toggle('bg-ink', on); b.classList.toggle('text-white', on);
+  });
+  document.querySelectorAll('.vseg').forEach((b) => {
+    const on = b.dataset.v === state.filters.view;
+    b.classList.toggle('bg-ink', on); b.classList.toggle('text-white', on);
+  });
+}
+
+function renderAll() {
+  updateSlider(); renderControls(); renderErrors(); renderSummary(); renderResults();
+}
+
+/* ---------- events ---------- */
+$('#refreshBtn').onclick = () => refresh({ force: true });
+$('#editBtn').onclick = () => openEditor($('#editor').hidden);
+$('#cancelBtn').onclick = () => openEditor(false);
+$('#saveBtn').onclick = async () => {
+  try { await saveTargets($('#jsonText').value); } catch (e) { $('#editorError').textContent = e.message; }
+};
+$('#fileInput').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  $('#jsonText').value = text;
+  try { await saveTargets(text); } catch (err) { $('#editorError').textContent = err.message; }
+  e.target.value = '';
+};
+document.querySelectorAll('.seg').forEach((b) => b.onclick = () => { state.filters.platform = b.dataset.p; renderAll(); });
+document.querySelectorAll('.vseg').forEach((b) => b.onclick = () => { state.filters.view = b.dataset.v; renderAll(); });
+$('#q').oninput = (e) => { state.filters.q = e.target.value; renderSummary(); renderResults(); };
+$('#price').oninput = (e) => {
+  const v = Number(e.target.value);
+  state.filters.maxPrice = v >= state.sliderMax ? null : v;
+  $('#priceOut').textContent = state.filters.maxPrice == null ? 'Any' : eur.format(v);
+  renderSummary(); renderResults();
+};
+$('#sort').onchange = (e) => { state.filters.sort = e.target.value; renderResults(); };
+$('#group').onchange = (e) => { state.filters.group = e.target.checked; renderResults(); };
+$('#hideAuctions').onchange = (e) => { state.filters.hideAuctions = e.target.checked; renderSummary(); renderResults(); };
+$('#defective').onchange = (e) => { state.options.includeDefective = e.target.checked; refresh({ force: false }); };
+$('#mode').onchange = (e) => { state.options.mode = e.target.value; refresh({ force: false }); };
+
+/* ---------- boot ---------- */
+(async function init() {
+  renderControls();
+  try {
+    state.targets = (await api('/api/targets')).targets;
+  } catch (err) {
+    state.errors.push({ target: 'Targets', platform: 'ebay', message: err.message });
+  }
+  renderChips(); renderAll();
+  refresh({ force: false });
+})();
+</script>
+</body>
+</html>
