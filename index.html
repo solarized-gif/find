@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Schnapper Tracker — PC Deal Finder</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {
+    colors: { base: '#0b0f17', panel: '#111827', accent: '#22c55e', fire: '#f97316' },
+    fontFamily: { mono: ['JetBrains Mono','ui-monospace','monospace'] }
+  }}
+}
+</script>
+<style>
+  body { background:#0b0f17; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#26314a; border-radius:8px; }
+  .card { transition: transform .12s ease, border-color .12s ease; }
+  .card:hover { transform: translateY(-2px); border-color:#22c55e66; }
+  .schnapper-glow { box-shadow: 0 0 0 1px #f9731688, 0 0 24px #f9731633; }
+  .spinner { border:3px solid #26314a; border-top:3px solid #22c55e; border-radius:50%; width:22px; height:22px; animation:spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .badge-fire { background: linear-gradient(135deg,#f97316,#ef4444); }
+  input[type=range] { accent-color:#22c55e; }
+</style>
+</head>
+<body class="text-slate-200 font-mono min-h-screen">
+
+<!-- HEADER -->
+<header class="border-b border-slate-800 bg-panel/80 sticky top-0 z-20 backdrop-blur">
+  <div class="max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center gap-3 justify-between">
+    <div>
+      <h1 class="text-xl md:text-2xl font-bold tracking-tight">⚡ Schnapper<span class="text-accent">Tracker</span></h1>
+      <p class="text-xs text-slate-400">eBay DE + Kleinanzeigen · Preis-Effizienz Radar · self-hosted</p>
+    </div>
+    <div class="flex items-center gap-2 text-xs">
+      <span id="healthDot" class="w-2.5 h-2.5 rounded-full bg-slate-600 inline-block"></span>
+      <span id="healthText" class="text-slate-400">Backend prüfen…</span>
+      <span id="statTotal" class="ml-3 px-2 py-1 rounded bg-slate-800 text-slate-300">0 Treffer</span>
+      <span id="statFire" class="px-2 py-1 rounded bg-orange-500/20 text-orange-300 border border-orange-500/40">🔥 0</span>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6 grid lg:grid-cols-[380px_1fr] gap-6">
+
+  <!-- LEFT: CONFIG -->
+  <section class="space-y-4">
+    <div class="bg-panel border border-slate-800 rounded-2xl p-5">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-bold text-sm uppercase tracking-widest text-slate-300">1 · JSON Config</h2>
+        <span id="cfgStatus" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">3 Komponenten · bereit</span>
+      </div>
+      <textarea id="jsonInput" rows="11" spellcheck="false"
+        class="w-full text-xs leading-relaxed bg-base border border-slate-700 rounded-xl p-3 outline-none focus:border-accent resize-y">[
+  { "name": "RTX 3070", "max_budget": 300 },
+  { "name": "Ryzen 5 5600X", "max_budget": 110 },
+  { "name": "RX 6700 XT", "max_budget": 280 }
+]</textarea>
+      <div class="flex gap-2 mt-3">
+        <button id="btnExample" class="flex-1 text-xs px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">↺ Beispiel</button>
+        <button id="btnValidate" class="flex-1 text-xs px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">✓ Validieren</button>
+      </div>
+      <p id="jsonError" class="hidden text-xs text-red-400 mt-2"></p>
+      <button id="btnScan"
+        class="mt-4 w-full py-3 rounded-xl font-bold text-black bg-accent hover:brightness-110 active:scale-[.99] flex items-center justify-center gap-2">
+        <span id="scanLabel">🔍 START SCAN</span>
+        <span id="scanSpinner" class="spinner hidden !border-t-black"></span>
+      </button>
+      <div class="mt-3">
+        <div class="h-2 rounded bg-slate-800 overflow-hidden">
+          <div id="progressBar" class="h-full w-0 bg-accent transition-all duration-300"></div>
+        </div>
+        <p id="progressText" class="text-[11px] text-slate-400 mt-1">Bereit. Scrapet eBay + Kleinanzeigen live.</p>
+      </div>
+    </div>
+
+    <!-- FILTERS -->
+    <div class="bg-panel border border-slate-800 rounded-2xl p-5 space-y-4">
+      <h2 class="font-bold text-sm uppercase tracking-widest text-slate-300">2 · Filter & Sortierung</h2>
+      <div>
+        <p class="text-[11px] text-slate-400 mb-2">Plattform</p>
+        <div class="flex gap-2" id="platformBtns">
+          <button data-p="all" class="pf flex-1 text-xs px-3 py-2 rounded-lg bg-accent text-black font-bold">Alle</button>
+          <button data-p="eBay" class="pf flex-1 text-xs px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">eBay</button>
+          <button data-p="Kleinanzeigen" class="pf flex-1 text-xs px-3 py-2 rounded-lg bg-slate-800 border border-slate-700">Kleinanzeigen</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-[11px] text-slate-400 mb-2">Suche in Ergebnissen</p>
+        <input id="kwFilter" type="text" placeholder="z.B. MSI, OVP, defekt -ausschließen…"
+          class="w-full text-xs bg-base border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-accent" />
+      </div>
+      <div>
+        <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+          <span>Max-Preis (UI-Filter)</span><span id="priceVal" class="text-accent font-bold">€ 2000</span>
+        </div>
+        <input id="priceRange" type="range" min="0" max="2000" step="10" value="2000" class="w-full" />
+      </div>
+      <div>
+        <p class="text-[11px] text-slate-400 mb-2">Sortierung</p>
+        <select id="sortSel" class="w-full text-xs bg-base border border-slate-700 rounded-lg px-3 py-2 outline-none">
+          <option value="value">🏆 Beste Preisseffizienz (Value Score)</option>
+          <option value="price">💰 Niedrigster Preis zuerst</option>
+          <option value="schnapper">🔥 Beste Schnapper (Rabatt vs. Ø)</option>
+        </select>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <input id="fireOnly" type="checkbox" class="w-4 h-4 accent-orange-500" /> Nur 🔥 Schnapper zeigen
+      </label>
+    </div>
+
+    <div class="bg-panel border border-slate-800 rounded-2xl p-5 text-[11px] text-slate-400 leading-relaxed">
+      <p class="text-slate-200 font-bold mb-1">Value Score = Benchmark ÷ Preis (€)</p>
+      <p>Je höher, desto mehr Leistung pro Euro. 🔥 Badge = &gt;15&nbsp;% unter dem Ø-Preis der Komponente &amp; im Budget.</p>
+    </div>
+  </section>
+
+  <!-- RIGHT: RESULTS -->
+  <section>
+    <div id="summary" class="hidden mb-4 grid sm:grid-cols-3 gap-3"></div>
+    <div id="emptyState" class="bg-panel border border-dashed border-slate-700 rounded-2xl p-10 text-center text-slate-400 text-sm">
+      <p class="text-3xl mb-2">🎯</p>
+      <p>Noch keine Ergebnisse. JSON prüfen und <b class="text-slate-200">START SCAN</b> drücken.</p>
+      <p class="text-[11px] mt-2">Der Scan dauert je nach Komponente ca. 5–20&nbsp;s (beide Plattformen, mit Höflichkeits-Delay).</p>
+    </div>
+    <div id="grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+  </section>
+</main>
+
+<footer class="max-w-7xl mx-auto px-4 pb-10 text-[11px] text-slate-500">
+  Self-hosted · keine API-Keys nötig · bitte eBay/Kleinanzeigen robots &amp; Rate-Limits respektieren.
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let ALL = [];       // all listings flattened
+let META = {};      // per-query meta
+let platform = 'all';
+
+const EXAMPLE = `[
+  { "name": "RTX 3070", "max_budget": 300 },
+  { "name": "Ryzen 5 5600X", "max_budget": 110 },
+  { "name": "RX 6700 XT", "max_budget": 280 }
+]`;
+
+// ---------- health ----------
+fetch('/api/health').then(r => r.json()).then(j => {
+  $('healthDot').className = 'w-2.5 h-2.5 rounded-full bg-green-500 inline-block';
+  $('healthText').textContent = `Backend OK · ${j.benchmarks} Benchmarks`;
+}).catch(() => {
+  $('healthDot').className = 'w-2.5 h-2.5 rounded-full bg-red-500 inline-block';
+  $('healthText').textContent = 'Backend offline? python app.py prüfen';
+});
+
+// ---------- config buttons ----------
+$('btnExample').onclick = () => { $('jsonInput').value = EXAMPLE; validate(true); };
+$('btnValidate').onclick = () => validate(true);
+
+function parseConfig() {
+  const raw = $('jsonInput').value.trim();
+  const data = JSON.parse(raw);
+  const items = Array.isArray(data) ? data : (data.items || data.components || null);
+  if (!Array.isArray(items) || !items.length) throw new Error('Array mit {name, max_budget} erwartet.');
+  items.forEach((it, i) => {
+    if (!it.name || typeof it.max_budget === 'undefined') throw new Error(`Eintrag ${i}: braucht "name" + "max_budget".`);
+    it.max_budget = Number(it.max_budget);
+    if (!it.name.trim() || !(it.max_budget > 0)) throw new Error(`Eintrag ${i}: ungültiger Name/Budget.`);
+  });
+  if (items.length > 20) throw new Error('Max 20 Komponenten pro Scan.');
+  return items;
+}
+function validate(silent) {
+  try {
+    const items = parseConfig();
+    $('cfgStatus').textContent = `${items.length} Komponente${items.length>1?'n':''} · bereit`;
+    $('cfgStatus').className = 'text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-300 border border-green-500/40';
+    $('jsonError').classList.add('hidden');
+    return items;
+  } catch (e) {
+    $('cfgStatus').textContent = 'JSON Fehler';
+    $('cfgStatus').className = 'text-[11px] px-2 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/40';
+    $('jsonError').textContent = '⚠ ' + e.message;
+    $('jsonError').classList.remove('hidden');
+    if (!silent) {}
+    return null;
+  }
+}
+$('jsonInput').addEventListener('input', () => validate(false));
+
+// ---------- scan ----------
+$('btnScan').onclick = async () => {
+  const items = validate(false);
+  if (!items) return;
+  setLoading(true);
+  $('emptyState').classList.add('hidden');
+  $('grid').innerHTML = '';
+  $('summary').classList.add('hidden');
+  fakeProgress();
+  try {
+    const res = await fetch('/api/scan', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(items)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Scan fehlgeschlagen');
+    ingest(data);
+    progressDone(`Fertig in ${data.elapsed_s}s · ${data.total} Treffer · 🔥 ${data.schnapper_total} Schnapper`);
+  } catch (e) {
+    progressDone('Fehler: ' + e.message, true);
+    $('emptyState').classList.remove('hidden');
+    $('emptyState').innerHTML = `<p class="text-3xl mb-2">⚠️</p><p>${e.message}</p>
+      <p class="text-[11px] mt-2">Tipp: Plattformen blocken manchmal (429/Captcha). Einfach erneut versuchen — die andere Plattform liefert trotzdem Ergebnisse.</p>`;
+  } finally {
+    setLoading(false);
+  }
+};
+
+function setLoading(on) {
+  $('scanSpinner').classList.toggle('hidden', !on);
+  $('scanLabel').textContent = on ? 'SCANNING…' : '🔍 START SCAN';
+  $('btnScan').disabled = on;
+  $('btnScan').classList.toggle('opacity-60', on);
+}
+let progTimer = null;
+function fakeProgress() {
+  clearInterval(progTimer);
+  let p = 5;
+  $('progressBar').style.width = p + '%';
+  $('progressText').textContent = 'Scrape eBay.de…';
+  progTimer = setInterval(() => {
+    p = Math.min(p + Math.random() * 9, 92);
+    $('progressBar').style.width = p + '%';
+    if (p > 45) $('progressText').textContent = 'Scrape Kleinanzeigen…';
+    if (p > 75) $('progressText').textContent = 'Berechne Value Scores & Schnapper…';
+  }, 500);
+}
+function progressDone(msg, err=false) {
+  clearInterval(progTimer);
+  $('progressBar').style.width = '100%';
+  $('progressBar').className = 'h-full w-full transition-all duration-300 ' + (err ? 'bg-red-500' : 'bg-accent');
+  $('progressText').textContent = msg;
+  setTimeout(() => { $('progressBar').style.width = '0%'; }, 4000);
+}
+
+// ---------- data ----------
+function ingest(data) {
+  ALL = [];
+  META = {};
+  (data.results || []).forEach(r => {
+    META[r.query] = r;
+    (r.listings || []).forEach(l => ALL.push({...l, query: r.query}));
+  });
+  // price slider max = max listing price
+  const maxP = Math.max(100, ...ALL.map(l => l.price));
+  $('priceRange').max = Math.ceil(maxP);
+  $('priceRange').value = Math.ceil(maxP);
+  $('priceVal').textContent = '€ ' + Math.ceil(maxP);
+  renderSummary(data.results || []);
+  render();
+}
+
+function renderSummary(results) {
+  const box = $('summary');
+  box.classList.remove('hidden');
+  box.innerHTML = results.map(r => {
+    const fire = r.schnapper_count || 0;
+    return `<div class="bg-panel border border-slate-800 rounded-xl p-3 text-xs">
+      <p class="font-bold text-slate-100 truncate">${r.query}</p>
+      <p class="text-slate-400 mt-1">Ø € ${r.avg_price ?? '–'} · Benchmark ${r.benchmark ?? '–'} · Budget € ${r.max_budget}</p>
+      <p class="mt-1"><span class="text-slate-300">${r.count} Treffer</span> · <span class="text-orange-300">🔥 ${fire}</span></p>
+      <p class="mt-1 space-x-2">
+        <a href="${r.urls.ebay}" target="_blank" class="underline text-sky-400">eBay ↗</a>
+        <a href="${r.urls.kleinanzeigen}" target="_blank" class="underline text-sky-400">Kleinanzeigen ↗</a>
+      </p>
+      ${r.errors && r.errors.length ? `<p class="text-red-400 mt-1">⚠ ${r.errors.join('; ')}</p>` : ''}
+    </div>`;
+  }).join('') || '';
+}
+
+// ---------- filters / sort / render ----------
+document.querySelectorAll('.pf').forEach(b => b.onclick = () => {
+  platform = b.dataset.p;
+  document.querySelectorAll('.pf').forEach(x => x.className = 'pf flex-1 text-xs px-3 py-2 rounded-lg bg-slate-800 border border-slate-700');
+  b.className = 'pf flex-1 text-xs px-3 py-2 rounded-lg bg-accent text-black font-bold';
+  render();
+});
+$('kwFilter').addEventListener('input', render);
+$('priceRange').addEventListener('input', e => { $('priceVal').textContent = '€ ' + e.target.value; render(); });
+$('sortSel').addEventListener('change', render);
+$('fireOnly').addEventListener('change', render);
+
+function filtered() {
+  const kw = $('kwFilter').value.toLowerCase().trim();
+  const maxP = Number($('priceRange').value);
+  const sort = $('sortSel').value;
+  const fireOnly = $('fireOnly').checked;
+  let list = ALL.filter(l =>
+    (platform === 'all' || l.platform === platform) &&
+    l.price <= maxP &&
+    (!fireOnly || l.is_schnapper) &&
+    (!kw || (l.title + ' ' + l.query + ' ' + (l.location||'')).toLowerCase().includes(kw))
+  );
+  if (sort === 'price') list.sort((a,b) => a.price - b.price);
+  else if (sort === 'schnapper') list.sort((a,b) => (b.discount_vs_avg - a.discount_vs_avg) || (b.value_score - a.value_score));
+  else list.sort((a,b) => (b.value_score - a.value_score) || (a.price - b.price));
+  return list;
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function render() {
+  const list = filtered();
+  $('statTotal').textContent = `${list.length} Treffer`;
+  $('statFire').textContent = `🔥 ${list.filter(l=>l.is_schnapper).length}`;
+  if (!ALL.length) return;
+  if (!list.length) {
+    $('grid').innerHTML = `<div class="col-span-full bg-panel border border-slate-800 rounded-2xl p-8 text-center text-sm text-slate-400">Keine Treffer mit diesen Filtern. Filter lockern.</div>`;
+    return;
+  }
+  $('grid').innerHTML = list.map(l => {
+    const fire = l.is_schnapper;
+    const pct = Math.round((l.discount_vs_avg || 0) * 100);
+    const platColor = l.platform === 'eBay' ? 'bg-sky-500/15 text-sky-300 border-sky-500/40' : 'bg-purple-500/15 text-purple-300 border-purple-500/40';
+    return `<div class="card bg-panel border ${fire ? 'border-orange-500/60 schnapper-glow' : 'border-slate-800'} rounded-2xl p-4 flex flex-col gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-[10px] px-2 py-0.5 rounded border ${platColor}">${esc(l.platform)}</span>
+        <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400">${esc(l.query)}</span>
+        ${fire ? `<span class="badge-fire text-[10px] font-bold px-2 py-0.5 rounded text-white">🔥 SCHNAPPER −${pct}%</span>` : ''}
+      </div>
+      <a href="${esc(l.url)}" target="_blank" rel="noopener" class="font-bold text-sm leading-snug hover:text-accent hover:underline">${esc(l.title)}</a>
+      <div class="flex items-end justify-between mt-1">
+        <p class="text-2xl font-bold text-accent">€ ${l.price.toLocaleString('de-DE')}</p>
+        <div class="text-right text-[11px] text-slate-400">
+          <p>Ø € ${(l.avg_price ?? 0).toLocaleString('de-DE')}</p>
+          <p>Value <b class="text-slate-200">${(l.value_score ?? 0).toFixed(3)}</b></p>
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-500 truncate">📍 ${esc(l.location || '—')}</p>
+      <a href="${esc(l.url)}" target="_blank" rel="noopener"
+        class="mt-1 text-center text-xs font-bold py-2 rounded-lg ${fire ? 'bg-orange-500 text-black hover:brightness-110' : 'bg-slate-800 hover:bg-slate-700 border border-slate-700'}">Anzeige öffnen ↗</a>
+    </div>`;
+  }).join('');
+}
+</script>
+</body>
+</html>
